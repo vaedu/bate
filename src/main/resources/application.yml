@@ -1,0 +1,63 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api/v1          # 接口前缀；控制器路径不含此前缀
+
+spring:
+  application:
+    name: beat-pay-server
+  datasource:
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:beat_pay}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=${DB_SSL:false}&allowPublicKeyRetrieval=true
+    username: ${DB_USER:beat_app}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10        # 2C4G 服务器与其他服务共用，别开太大
+  jackson:
+    default-property-inclusion: always      # 响应保留 null 字段，与接口文档示例一致
+    deserialization:
+      fail-on-unknown-properties: false     # 向后兼容：忽略未知字段
+    time-zone: UTC
+  mvc:
+    throw-exception-if-no-handler-found: true
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    banner: false
+
+logging:
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%X{requestId}] %-5level %logger{36} - %msg%n"   # 日志不要打印 Token
+
+beat:
+  jwt:
+    secret: ${JWT_SECRET:}                  # 必填，≥32 字节
+    issuer: beat-pay
+    access-ttl-seconds: 1800                # 30 分钟
+    refresh-ttl-seconds: 2592000            # 30 天（滚动）
+  huawei:
+    client-id: ${HUAWEI_CLIENT_ID:}
+    client-secret: ${HUAWEI_CLIENT_SECRET:} # 仅服务端环境变量，不入库不入仓库
+    token-url: ${HUAWEI_TOKEN_URL:}         # TODO：以华为官方文档为准
+    user-info-url: ${HUAWEI_USERINFO_URL:}
+    timeout-millis: 3000
+  biz:
+    sync:
+      max-changes-per-push: 100
+      pull-default-limit: 200
+      pull-max-limit: 500
+      tombstone-retention-days: 90
+    account:
+      deletion-cooling-days: 7
+      deletion-deadline-working-days: 15
+    timer:
+      max-record-span-hours: 48
+      future-tolerance-minutes: 5
+      duration-tolerance-ms: 1000
+    migration:
+      batch-max-items: 200
+      task-ttl-days: 7
+    idempotency:
+      retention-days: 7
