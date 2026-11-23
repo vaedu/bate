@@ -68,6 +68,8 @@ public class GlobalExceptionHandler {
     }
 
     private static ResponseEntity<Result<Object>> build(ErrorCode code, String message, Object data) {
+        log.warn("请求失败 code={} message={}", code.getCode(), message != null ? message : code.getMessage());
         return ResponseEntity.status(code.getHttpStatus()).body(Result.fail(code, message, data));
     }
+
 }

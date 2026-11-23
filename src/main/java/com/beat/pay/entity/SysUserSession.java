@@ -5,13 +5,17 @@ import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.beat.pay.enums.LoginType;
 import com.beat.pay.enums.SessionStatus;
+import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.NoArgsConstructor;
 
 /** sys_user_session */
 @Data
 @EqualsAndHashCode(callSuper = true)
 @TableName(value = "sys_user_session")
+@AllArgsConstructor
+@NoArgsConstructor
 public class SysUserSession extends BaseEntity {
     /** 主键 */
     @TableId(type = IdType.ASSIGN_ID)
