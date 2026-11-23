@@ -63,7 +63,7 @@ public class HuaweiAccountClientImpl implements HuaweiAccountClient {
 						infoBody == null ? null : infoBody.keySet());
 				throw new BizException(ErrorCode.HUAWEI_AUTH_FAILED);
 			}
-
+			log.info("华为用户信息返回字段: {}", infoBody.keySet());
 			// 昵称、头像可能没有（没授权 profile 时），取不到就是 null，不能直接 .toString()
 			String unionId = text(infoBody, "unionID", "unionId");
 			String openId = text(infoBody, "openID", "openId");

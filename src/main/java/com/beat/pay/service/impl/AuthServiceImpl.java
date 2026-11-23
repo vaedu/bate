@@ -12,6 +12,7 @@ import com.beat.pay.dto.auth.*;
 import com.beat.pay.dto.device.DeviceInfo;
 import com.beat.pay.entity.*;
 import com.beat.pay.enums.DeviceStatus;
+import com.beat.pay.enums.RevokeReason;
 import com.beat.pay.enums.SessionStatus;
 import com.beat.pay.enums.UserStatus;
 import com.beat.pay.mapper.*;
@@ -132,7 +133,30 @@ public class AuthServiceImpl implements AuthService {
 					.set(SysUser::getLastLoginAt, now)
 					.set(SysUser::getUpdatedAt, now));
 		}
+		// 同步昵称、头像：华为这次返回了有效的新值才更新，没返回就保留原来的，不会被清空
+		if (!isNewUser) {
+			String newNickname = huaweiIdentity.nickname();
+			String newAvatar = huaweiIdentity.avatarUrl();
+			boolean nicknameChanged = newNickname != null && !newNickname.isBlank()
+					&& newNickname.length() <= 64 && !newNickname.equals(user.getNickname());
+			boolean avatarChanged = newAvatar != null && !newAvatar.isBlank()
+					&& newAvatar.length() <= 512 && !newAvatar.equals(user.getAvatarUrl());
 
+			if (nicknameChanged || avatarChanged) {
+				LambdaUpdateWrapper<SysUser> wrapper = new LambdaUpdateWrapper<SysUser>()
+						.eq(SysUser::getId, user.getId())
+						.set(SysUser::getUpdatedAt, now);
+				if (nicknameChanged) {
+					wrapper.set(SysUser::getNickname, newNickname);
+					user.setNickname(newNickname);      // 同步内存里的对象，返回给前端的是新值
+				}
+				if (avatarChanged) {
+					wrapper.set(SysUser::getAvatarUrl, newAvatar);
+					user.setAvatarUrl(newAvatar);
+				}
+				sysUserMapper.update(null, wrapper);
+			}
+		}
 		// 步骤5: 记录或更新设备信息
 		Long userId = user.getId();
 		DeviceInfo d = req.getDevice();
@@ -216,14 +240,28 @@ public class AuthServiceImpl implements AuthService {
 
 	@Override
 	public void logout(Long userId, Long sessionId) {
-		// TODO: API-AUTH-03（需求：AUTH-008）
-		throw new UnsupportedOperationException("TODO: API-AUTH-03");
+		long now = System.currentTimeMillis();
+		sessionMapper.update(null, new LambdaUpdateWrapper<SysUserSession>()
+				.eq(SysUserSession::getId, sessionId)
+				.eq(SysUserSession::getUserId, userId)
+				.eq(SysUserSession::getStatus, SessionStatus.ACTIVE)
+				.set(SysUserSession::getStatus, SessionStatus.REVOKED)
+				.set(SysUserSession::getRevokedAt, now)
+				.set(SysUserSession::getRevokeReason, RevokeReason.LOGOUT)
+				.set(SysUserSession::getUpdatedAt, now));
+
 	}
 
 	@Override
 	public void logoutAll(Long userId) {
-		// TODO: API-AUTH-04（需求：AUTH-009）
-		throw new UnsupportedOperationException("TODO: API-AUTH-04");
+		long now = System.currentTimeMillis();
+		sessionMapper.update(null, new LambdaUpdateWrapper<SysUserSession>()
+				.eq(SysUserSession::getUserId, userId)
+				.eq(SysUserSession::getStatus, SessionStatus.ACTIVE)
+				.set(SysUserSession::getStatus, SessionStatus.REVOKED)
+				.set(SysUserSession::getRevokedAt, now)
+				.set(SysUserSession::getRevokeReason, "LOGOUT_ALL")
+				.set(SysUserSession::getUpdatedAt, now));
 	}
 
 	private UserInfoVO toUserInfo(SysUser user) {
