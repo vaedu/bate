@@ -32,7 +32,7 @@ import java.util.Objects;
 public class AuthServiceImpl implements AuthService {
 	private HuaweiAccountClient huaweiAccountClient;
 	private SysUserIdentityMapper sysUserIdentityMapper;
-	private SysUserMapper sysUserMapper;
+	private SysUserMapper userMapper;
 	private SysUserDeviceMapper deviceMapper;
 	private static final SecureRandom RANDOM = new SecureRandom();
 	private SysUserSessionMapper sessionMapper;
@@ -40,6 +40,7 @@ public class AuthServiceImpl implements AuthService {
 	private final JwtUtil jwtUtil;
 	private BeatUserSettingsMapper settingsMapper;
 	private BeatWorkRecordMapper workRecordMapper;
+
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public LoginResult huaweiLogin(HuaweiLoginRequest req) {
@@ -78,7 +79,7 @@ public class AuthServiceImpl implements AuthService {
 			sysUser.setNickname(nickname);
 			sysUser.setStatus(UserStatus.ACTIVE);
 			sysUser.setLastLoginAt(now);
-			sysUserMapper.insert(sysUser);
+			userMapper.insert(sysUser);
 
 			// 3.2 创建华为身份绑定记录
 			huaweiUser = new SysUserIdentity();
@@ -100,7 +101,7 @@ public class AuthServiceImpl implements AuthService {
 		}
 
 		// 步骤4: 获取用户主记录并检查账号状态
-		SysUser user = sysUserMapper.selectById(huaweiUser.getUserId());
+		SysUser user = userMapper.selectById(huaweiUser.getUserId());
 		// 兜底：有身份映射却查不到用户属于数据不一致，不要往下走空指针
 		if (user == null) {
 			throw new BizException(ErrorCode.INTERNAL_ERROR);
@@ -117,7 +118,7 @@ public class AuthServiceImpl implements AuthService {
 			user.setStatus(UserStatus.ACTIVE);
 			user.setDeletionRequestedAt(null);
 			user.setDeletionScheduledAt(null);
-			sysUserMapper.update(null, new LambdaUpdateWrapper<SysUser>()
+			userMapper.update(null, new LambdaUpdateWrapper<SysUser>()
 					.eq(SysUser::getId, user.getId())
 					.set(SysUser::getStatus, UserStatus.ACTIVE)
 					.set(SysUser::getDeletionRequestedAt, null)
@@ -128,7 +129,7 @@ public class AuthServiceImpl implements AuthService {
 			// 【修正5】正常的老用户也要更新用户表的最近登录时间
 			// （原来只有注销冷静期那个分支会更新，普通老用户的 last_login_at 永远停在注册那天）
 			// 新用户在 3.1 已经写过 lastLoginAt，不用再更新
-			sysUserMapper.update(null, new LambdaUpdateWrapper<SysUser>()
+			userMapper.update(null, new LambdaUpdateWrapper<SysUser>()
 					.eq(SysUser::getId, user.getId())
 					.set(SysUser::getLastLoginAt, now)
 					.set(SysUser::getUpdatedAt, now));
@@ -154,7 +155,7 @@ public class AuthServiceImpl implements AuthService {
 					wrapper.set(SysUser::getAvatarUrl, newAvatar);
 					user.setAvatarUrl(newAvatar);
 				}
-				sysUserMapper.update(null, wrapper);
+				userMapper.update(null, wrapper);
 			}
 		}
 		// 步骤5: 记录或更新设备信息
@@ -233,9 +234,81 @@ public class AuthServiceImpl implements AuthService {
 	}
 
 	@Override
+	@Transactional(noRollbackFor = BizException.class)
 	public TokenPair refresh(RefreshRequest req) {
-		// TODO: API-AUTH-02（需求：AUTH-005,007）
-		throw new UnsupportedOperationException("TODO: API-AUTH-02");
+		// 获取当前时间的毫秒值
+		long now = System.currentTimeMillis();
+		// 对refreshToken进行SHA-256哈希处理
+		String hash = HashUtil.sha256Hex(req.getRefreshToken());
+		// 使用hash值查询用户会话信息
+		SysUserSession session = sessionMapper.selectOne(new LambdaQueryWrapper<SysUserSession>()
+				.eq(SysUserSession::getRefreshTokenHash, hash));
+		// 没查到用户会话信息
+		if (session == null){
+			// 拿上一次的rToken来再次查询
+			SysUserSession session1 = sessionMapper.selectOne(new LambdaQueryWrapper<SysUserSession>()
+					.eq(SysUserSession::getPreviousRefreshTokenHash, hash));
+			// 还是查不到，返回 401状态码
+			if (session1 == null){
+				throw new BizException(ErrorCode.REFRESH_TOKEN_INVALID);
+			}
+			// 查到了，吊销该会话，因为有人在用这个token但视为token泄漏
+			sessionMapper.update(null,new LambdaUpdateWrapper<SysUserSession>()
+					.eq(SysUserSession::getId, session1.getId())
+					.eq(SysUserSession::getStatus,SessionStatus.ACTIVE)
+					.set(SysUserSession::getStatus,SessionStatus.REVOKED)
+					.set(SysUserSession::getRevokeReason,RevokeReason.REPLAY)
+					.set(SysUserSession::getUpdatedAt,now));
+			throw new BizException(ErrorCode.REFRESH_TOKEN_REPLAYED);
+		}
+		// 查到了
+		// 检查会话状态是否被登出或吊销过 是->提示 当前设备会话已被撤销 业务错误码20007
+		if (session.getStatus() != SessionStatus.ACTIVE) {
+			throw new BizException(ErrorCode.SESSION_REVOKED);
+		}
+		// 检查refreshToken是否过期 是->提示 refreshToken已过期 业务错误码20004
+		if (session.getRefreshExpiresAt() < now) {
+			throw new BizException(ErrorCode.REFRESH_TOKEN_INVALID);
+		}
+		//利用会话查用户id
+		Long userId = session.getUserId();
+		// 利用用户id查用户信息
+		SysUser user = userMapper.selectById(userId);
+		// 若会话还存在但用户已经被物理删除的情况
+		if (user == null) {
+			throw new BizException(ErrorCode.REFRESH_TOKEN_INVALID);   // 账号已不存在，客户端回到登录页
+		}
+		// 若用户状态为冻结或注销冷静期 是->提示 账户已被冻结或处于注销冷静期 业务错误码20008
+		if (user.getStatus() != UserStatus.ACTIVE) {
+			throw new BizException(ErrorCode.ACCOUNT_RESTRICTED);
+		}
+		// 生成新的refreshToken及其哈希并进行轮换
+		byte[] buf = new byte[32];
+		RANDOM.nextBytes(buf);
+		String refreshToken = Base64.getUrlEncoder().withoutPadding().encodeToString(buf);
+		String newHash = HashUtil.sha256Hex(refreshToken);
+		int updateRow = sessionMapper.update(null, new LambdaUpdateWrapper<SysUserSession>()
+				.eq(SysUserSession::getId, session.getId())
+				.eq(SysUserSession::getRefreshTokenHash, hash)
+				.eq(SysUserSession::getStatus, SessionStatus.ACTIVE)
+				.set(SysUserSession::getPreviousRefreshTokenHash, hash)
+				.set(SysUserSession::getRefreshTokenHash, newHash)
+				.set(SysUserSession::getRefreshExpiresAt, now + jwtProps.getRefreshTtlSeconds() * 1000L)
+				.set(SysUserSession::getLastRefreshAt, now)
+				.set(SysUserSession::getUpdatedAt, now)
+		);
+		if (updateRow != 1) {
+			throw new BizException(ErrorCode.REFRESH_TOKEN_INVALID);
+		}
+		String accessToken = jwtUtil.generateAccessToken(userId, session.getId(), session.getDeviceId());
+		TokenPair pair = new TokenPair();
+		pair.setAccessToken(accessToken);
+		pair.setRefreshToken(refreshToken);
+		pair.setExpiresIn(jwtProps.getAccessTtlSeconds());
+		pair.setRefreshExpiresIn(jwtProps.getRefreshTtlSeconds());
+		pair.setServerTime(now);
+		pair.setTokenType("Bearer");
+		return pair;
 	}
 
 	@Override
