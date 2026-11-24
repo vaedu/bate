@@ -12,10 +12,7 @@ import com.beat.pay.config.JwtProperties;
 import com.beat.pay.dto.auth.*;
 import com.beat.pay.dto.device.DeviceInfo;
 import com.beat.pay.entity.*;
-import com.beat.pay.enums.DeviceStatus;
-import com.beat.pay.enums.RevokeReason;
-import com.beat.pay.enums.SessionStatus;
-import com.beat.pay.enums.UserStatus;
+import com.beat.pay.enums.*;
 import com.beat.pay.mapper.*;
 import com.beat.pay.security.JwtUtil;
 import com.beat.pay.service.AuthService;
@@ -115,6 +112,10 @@ public class AuthServiceImpl implements AuthService {
 		}
 
 		if (status == UserStatus.PENDING_DELETION) {
+			// 静默登录不是用户本人操作，不能借此撤销注销；只有用户主动点登录才恢复
+			if (req.getLoginType() != LoginType.INTERACTIVE) {
+				throw new BizException(ErrorCode.ACCOUNT_RESTRICTED);
+			}
 			// 4.2 账号处于注销冷静期：撤销注销并恢复激活（同时更新最近登录）
 			user.setStatus(UserStatus.ACTIVE);
 			user.setDeletionRequestedAt(null);
