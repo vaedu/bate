@@ -20,6 +20,7 @@ public enum ErrorCode {
     HUAWEI_AUTH_FAILED(20006, 401, "华为授权校验失败"),
     SESSION_REVOKED(20007, 401, "当前设备会话已被撤销"),
     ACCOUNT_RESTRICTED(20008, 403, "账号已冻结或处于注销冷静期"),
+    SYNC_CONSENT_REQUIRED(20009, 403, "未同意云同步（或隐私政策版本已更新，需重新同意）"),
     FORBIDDEN(30001, 403, "无权限"),
     NOT_FOUND(30002, 404, "资源不存在"),
     VERSION_CONFLICT(40001, 409, "版本冲突"),

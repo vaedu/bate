@@ -61,3 +61,5 @@ beat:
       task-ttl-days: 7
     idempotency:
       retention-days: 7
+    consent:
+      current-policy-version: "1.0"   # 隐私政策升级时同步修改，用户需重新同意

@@ -1,5 +1,9 @@
 package com.beat.pay.service.impl;
 
+import com.beat.pay.dto.sync.ClearCloudDataRequest;
+import com.beat.pay.dto.sync.ClearCloudDataResult;
+import com.beat.pay.dto.sync.SyncConsentRequest;
+import com.beat.pay.dto.sync.SyncConsentVO;
 import com.beat.pay.dto.sync.SyncPullResult;
 import com.beat.pay.dto.sync.SyncPushRequest;
 import com.beat.pay.dto.sync.SyncPushResult;
@@ -26,5 +30,23 @@ public class SyncServiceImpl implements SyncService {
     public SyncStatusVO status(Long userId, String deviceId) {
         // TODO: API-SYNC-03（需求：SYNC-013）
         throw new UnsupportedOperationException("TODO: API-SYNC-03");
+    }
+
+    @Override
+    public SyncConsentVO getConsent(Long userId) {
+        // TODO: API-SYNC-04（需求：PRV-010）
+        throw new UnsupportedOperationException("TODO: API-SYNC-04");
+    }
+
+    @Override
+    public SyncConsentVO updateConsent(Long userId, SyncConsentRequest req) {
+        // TODO: API-SYNC-05（需求：PRV-009~011）
+        throw new UnsupportedOperationException("TODO: API-SYNC-05");
+    }
+
+    @Override
+    public ClearCloudDataResult clearCloudData(Long userId, ClearCloudDataRequest req) {
+        // TODO: API-SYNC-06（需求：PRV-012）
+        throw new UnsupportedOperationException("TODO: API-SYNC-06");
     }
 }

@@ -7,6 +7,7 @@ import com.beat.pay.client.HuaweiIdentity;
 import com.beat.pay.common.BizException;
 import com.beat.pay.common.Constants;
 import com.beat.pay.common.ErrorCode;
+import com.beat.pay.config.BizProperties;
 import com.beat.pay.config.JwtProperties;
 import com.beat.pay.dto.auth.*;
 import com.beat.pay.dto.device.DeviceInfo;
@@ -40,7 +41,7 @@ public class AuthServiceImpl implements AuthService {
 	private final JwtUtil jwtUtil;
 	private BeatUserSettingsMapper settingsMapper;
 	private BeatWorkRecordMapper workRecordMapper;
-
+	private final BizProperties bizProps;
 	@Override
 	@Transactional(rollbackFor = Exception.class)
 	public LoginResult huaweiLogin(HuaweiLoginRequest req) {
@@ -174,12 +175,14 @@ public class AuthServiceImpl implements AuthService {
 		}
 
 		// 5.2 更新设备信息（新设备和老设备都需要）
-		device.setDeviceName(d.getDeviceName());
-		device.setDeviceModel(d.getDeviceModel());
-		device.setOsVersion(d.getOsVersion());
 		device.setAppVersion(d.getAppVersion());
-		device.setDeviceType(d.getDeviceType());
-		device.setStatus(DeviceStatus.ACTIVE);   // 被移除过的设备重新登录要恢复
+		if (isSyncConsented(user)) {
+			device.setDeviceName(d.getDeviceName());
+			device.setDeviceModel(d.getDeviceModel());
+			device.setOsVersion(d.getOsVersion());
+			device.setDeviceType(d.getDeviceType());
+		}
+		device.setStatus(DeviceStatus.ACTIVE);
 		device.setLastActiveAt(now);
 
 		if (device.getId() == null) deviceMapper.insert(device);
@@ -230,6 +233,7 @@ public class AuthServiceImpl implements AuthService {
 		result.setIsNewUser(isNewUser);
 		result.setHasCloudData(!isNewUser && hasCloudData(userId));
 		result.setServerTime(now);
+		result.setSyncConsented(isSyncConsented(user));
 		return result;
 	}
 
@@ -357,5 +361,9 @@ public class AuthServiceImpl implements AuthService {
 		return workRecordMapper.selectCount(new LambdaQueryWrapper<BeatWorkRecord>()
 				.eq(BeatWorkRecord::getUserId, userId)
 				.eq(BeatWorkRecord::getDeleted, false)) > 0;
+	}
+	private boolean isSyncConsented(SysUser user) {
+		return user.getSyncConsentAt() != null
+				&& bizProps.getConsent().getCurrentPolicyVersion().equals(user.getSyncConsentVersion());
 	}
 }

@@ -1,5 +1,9 @@
 package com.beat.pay.service;
 
+import com.beat.pay.dto.sync.ClearCloudDataRequest;
+import com.beat.pay.dto.sync.ClearCloudDataResult;
+import com.beat.pay.dto.sync.SyncConsentRequest;
+import com.beat.pay.dto.sync.SyncConsentVO;
 import com.beat.pay.dto.sync.SyncPullResult;
 import com.beat.pay.dto.sync.SyncPushRequest;
 import com.beat.pay.dto.sync.SyncPushResult;
@@ -15,4 +19,13 @@ public interface SyncService {
 
     /** API-SYNC-03（需求：SYNC-013） */
     SyncStatusVO status(Long userId, String deviceId);
+
+    /** API-SYNC-04（需求：PRV-010） */
+    SyncConsentVO getConsent(Long userId);
+
+    /** API-SYNC-05（需求：PRV-009~011） */
+    SyncConsentVO updateConsent(Long userId, SyncConsentRequest req);
+
+    /** API-SYNC-06（需求：PRV-012） */
+    ClearCloudDataResult clearCloudData(Long userId, ClearCloudDataRequest req);
 }

@@ -29,6 +29,9 @@ public class LoginResult {
     /** 云端是否已有业务数据 */
     private Boolean hasCloudData;
 
+    /** 是否已同意云同步（未同意时客户端保持本地模式） */
+    private Boolean syncConsented;
+
     /** 服务端时间 */
     private Long serverTime;
 }

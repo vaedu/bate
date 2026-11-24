@@ -39,4 +39,7 @@ public class SysUser extends BaseEntity {
 
     /** 同意时的隐私政策版本 */
     private String syncConsentVersion;
+
+    /** 撤回同意时间 */
+    private Long syncConsentRevokedAt;
 }

@@ -13,6 +13,7 @@ public class BizProperties {
     private Timer timer = new Timer();
     private Migration migration = new Migration();
     private Idempotency idempotency = new Idempotency();
+    private Consent consent = new Consent();
 
     @Data
     public static class Sync {
@@ -45,6 +46,12 @@ public class BizProperties {
     public static class Migration {
         private int batchMaxItems = 200;
         private int taskTtlDays = 7;
+    }
+
+    @Data
+    public static class Consent {
+        /** 云同步同意对应的当前隐私政策版本；升级后用户需重新同意 */
+        private String currentPolicyVersion = "1.0";
     }
 
     @Data

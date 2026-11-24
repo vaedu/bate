@@ -72,9 +72,10 @@ public class HuaweiAccountClientImpl implements HuaweiAccountClient {
 				log.warn("华为用户信息中没有 unionID，响应字段: {}", infoBody.keySet());
 				throw new BizException(ErrorCode.HUAWEI_AUTH_FAILED);
 			}
-			String nickname = text(infoBody, "nickname");
+			String displayName = text(infoBody, "displayName");
 			String headPictureUrl = text(infoBody, "headPictureURL");
-			return new HuaweiIdentity(unionId, openId, nickname, headPictureUrl);
+			log.info("华为用户信息返回 displayName={}, headPictureURL={}", displayName, headPictureUrl);
+			return new HuaweiIdentity(unionId, openId, displayName, headPictureUrl);
 
 		} catch (BizException e) {
 			throw e;

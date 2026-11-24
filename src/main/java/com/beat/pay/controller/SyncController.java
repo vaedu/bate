@@ -2,6 +2,10 @@ package com.beat.pay.controller;
 
 import com.beat.pay.common.Constants;
 import com.beat.pay.common.Result;
+import com.beat.pay.dto.sync.ClearCloudDataRequest;
+import com.beat.pay.dto.sync.ClearCloudDataResult;
+import com.beat.pay.dto.sync.SyncConsentRequest;
+import com.beat.pay.dto.sync.SyncConsentVO;
 import com.beat.pay.dto.sync.SyncPullResult;
 import com.beat.pay.dto.sync.SyncPushRequest;
 import com.beat.pay.dto.sync.SyncPushResult;
@@ -10,8 +14,10 @@ import com.beat.pay.security.UserContext;
 import com.beat.pay.service.SyncService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -39,5 +45,23 @@ public class SyncController {
     @GetMapping("/sync/status")
     public Result<SyncStatusVO> status(@RequestParam String deviceId) {
         return Result.ok(syncService.status(UserContext.userId(), deviceId));
+    }
+
+    /** API-SYNC-04（需求：PRV-010） */
+    @GetMapping("/sync/consent")
+    public Result<SyncConsentVO> getConsent() {
+        return Result.ok(syncService.getConsent(UserContext.userId()));
+    }
+
+    /** API-SYNC-05（需求：PRV-009~011） */
+    @PutMapping("/sync/consent")
+    public Result<SyncConsentVO> updateConsent(@Valid @RequestBody SyncConsentRequest req) {
+        return Result.ok(syncService.updateConsent(UserContext.userId(), req));
+    }
+
+    /** API-SYNC-06（需求：PRV-012） */
+    @DeleteMapping("/sync/data")
+    public Result<ClearCloudDataResult> clearCloudData(@Valid @RequestBody ClearCloudDataRequest req) {
+        return Result.ok(syncService.clearCloudData(UserContext.userId(), req));
     }
 }

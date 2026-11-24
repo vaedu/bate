@@ -1,6 +1,6 @@
 # beat-pay-server
 
-Beat计薪 后端服务骨架（Spring Boot 单体 + MyBatis-Plus + MySQL）。对应《需求规格说明书》V1.0、《后端接口设计文档》V1.0（本期 29 个接口）。
+Beat计薪 后端服务骨架（Spring Boot 单体 + MyBatis-Plus + MySQL）。对应《需求规格说明书》V1.1、《后端接口设计文档》V1.1（本期 32 个接口，含云同步同意管理 3 个）。
 
 > 这是**骨架**：实体、DTO、枚举、统一返回、错误码、全局异常、JWT 认证、控制器与服务接口都已就位，
 > 服务实现类（`service/impl`）全部是 `TODO` 桩，调用会返回 90001。
@@ -31,9 +31,9 @@ src/main/java/com/beat/pay/
   BeatPayApplication
   common/            Result、PageResult、ErrorCode、BizException、GlobalExceptionHandler、RequestIdFilter
   config/            MybatisPlus（分页/自动填充）、WebMvc（认证拦截）、JwtProperties、HuaweiProperties、BizProperties
-  security/          JwtUtil、AuthInterceptor、UserContext（userId 只取自 Token）
+  security/          JwtUtil、AuthInterceptor、ConsentInterceptor（云同步同意校验）、UserContext（userId 只取自 Token）
   client/            HuaweiAccountClient（授权码换取，TODO）
-  controller/        7 个控制器 = 29 个接口，注释里带接口编号与需求编号
+  controller/        7 个控制器 = 32 个接口，注释里带接口编号与需求编号
   service/ + impl/   服务接口与 TODO 桩
   entity/            15 个实体（与建表脚本逐字段对照过）+ BaseEntity / SyncEntity / CreatedOnlyEntity
   mapper/            15 个 Mapper
@@ -78,7 +78,7 @@ src/test/            PricingUtilTest（需求 5.3 的 150 元示例）
 | 1 | 会话校验（`AuthInterceptor` TODO）、幂等工具类、`HuaweiAccountClient` | — |
 | 2 | 登录、续期（轮换 + 重放检测）、退出 | API-AUTH-01~04 |
 | 3 | 用户信息、注销（冷静期 + 15 个工作日内删除）、设备管理 | API-AUTH-05/06、API-DEV-01~03 |
-| 4 | 同步 Push / Pull / Status（先做 WORK_RECORD 与 SETTINGS） | API-SYNC-01~03 |
+| 4 | 同步 Push / Pull / Status（先做 WORK_RECORD 与 SETTINGS）；同意管理与清除云端数据 | API-SYNC-01~06 |
 | 5 | 计时会话（互斥、状态机、结束时落库 + 校验） | API-TMR-01~06 |
 | 6 | 游客数据迁移 | API-MIG-01~04 |
 | 7 | 只读查询 | API-DAT-01~07 |
@@ -86,8 +86,9 @@ src/test/            PricingUtilTest（需求 5.3 的 150 元示例）
 
 ## 还没做 / 待补
 
-- **PRV-009（云同步开关与清除云端数据）**：隐私政策已承诺，需求与接口文档还没补；`sys_user.sync_consent_*` 已预留字段。
-  建议补：记录同意/撤回同意的接口、清除云端业务数据的接口。
+- **PRV-009 已补进文档与骨架**：`GET/PUT /sync/consent`、`DELETE /sync/data`，以及 `ConsentInterceptor`（业务数据接口未同意返回 20009）。
+  实现要点：同意记录在 `sys_user.sync_consent_*`；撤回=关闭；清除=关闭并删除云端业务数据（不删账号、会话、设备）。
+  已有库升级：执行 `sql/upgrade-prv009.sql`。
 - `HuaweiAccountClientImpl` 按华为官方文档实现（地址、参数、鉴权为配置项，未写死）。
 - 二批接口（统计对账、备份导出、节假日下发、城市数据、反馈附件）未建骨架。
 
