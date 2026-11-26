@@ -6,5 +6,6 @@ public enum Resolution {
     CONFLICT_COPY_CREATED,
     FIELD_MERGED,
     SERVER_KEPT,
-    RESTORED_BY_UPDATE
+    RESTORED_BY_UPDATE,
+
 }

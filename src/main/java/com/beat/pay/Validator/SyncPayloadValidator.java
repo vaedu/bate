@@ -22,6 +22,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.validation.Validator;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -44,6 +45,7 @@ import java.util.Set;
  *   3. 业务规则（需求 5.6）：时间、分段、金额
  */
 @Component
+@Slf4j
 @RequiredArgsConstructor
 public class SyncPayloadValidator {
 
@@ -343,6 +345,7 @@ public class SyncPayloadValidator {
 		try {
 			return objectMapper.treeToValue(payload, type);
 		} catch (JsonProcessingException | IllegalArgumentException e) {
+			log.warn("payload 解析失败 type={} cause={}", type.getSimpleName(), e.getMessage());
 			throw fail(ErrorCode.INVALID_PARAM, "payload 格式错误");   // 不把异常细节返回给客户端
 		}
 	}
