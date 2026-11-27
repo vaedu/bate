@@ -34,6 +34,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @Slf4j
@@ -50,6 +51,12 @@ public class SyncServiceImpl implements SyncService {
 	private final BeatSyncReceiptMapper receiptMapper;
 	private final ObjectMapper objectMapper;
 	private final BizProperties bizProps;
+	/**
+	 * 字段级合并的合并单位（payRule 的四个字段算一个整体）
+	 */
+	private static final List<String> SETTINGS_MERGE_UNITS = List.of(
+			"payRule", "switches", "timerReminderMinutes", "motivationSource",
+			"customMotivations", "theme", "onboarded", "toolsOrder", "toolsHidden");
 
 	/**
 	 * 处理客户端的同步推送请求，将多个数据变更应用到服务端。
@@ -100,11 +107,7 @@ public class SyncServiceImpl implements SyncService {
 			// 更新设备的最后同步时间，用于追踪设备活跃状态
 			// 注意：LambdaUpdateWrapper 不会自动填充 updatedAt，需手动设置
 			long now = System.currentTimeMillis();
-			deviceMapper.update(null, new LambdaUpdateWrapper<SysUserDevice>()
-					.eq(SysUserDevice::getUserId, userId)
-					.eq(SysUserDevice::getDeviceId, req.getDeviceId())
-					.set(SysUserDevice::getLastSyncAt, now)
-					.set(SysUserDevice::getUpdatedAt, now));
+			updateDevice(userId, req.getDeviceId(), now);
 			SyncPushResult result = new SyncPushResult();
 			result.setRequestId(req.getRequestId());
 			result.setResults(results);
@@ -113,6 +116,8 @@ public class SyncServiceImpl implements SyncService {
 			return result;
 		});
 	}
+
+
 
 	/**
 	 * 应用单个数据变更到服务端，包含变更级幂等检查、实体类型分发及幂等记录保存。
@@ -561,10 +566,6 @@ public class SyncServiceImpl implements SyncService {
 		return result;
 	}
 
-	/** 字段级合并的合并单位（payRule 的四个字段算一个整体） */
-	private static final List<String> SETTINGS_MERGE_UNITS = List.of(
-			"payRule", "switches", "timerReminderMinutes", "motivationSource",
-			"customMotivations", "theme", "onboarded", "toolsOrder", "toolsHidden");
 
 	/**
 	 * 版本冲突时的字段级合并（需求 5.9 规则 H）：
@@ -690,9 +691,11 @@ public class SyncServiceImpl implements SyncService {
 		newSettings.setFieldUpdatedAt(dto.getFieldUpdatedAt());
 		return newSettings;
 	}
+
 	private String jsonOrNull(Object v) {
 		return v == null ? null : toJson(v);
 	}
+
 	private SettingsDTO toSettingsDto(BeatUserSettings s) {
 		SettingsDTO dto = new SettingsDTO();
 		dto.setVersion(s.getVersion());
@@ -716,9 +719,9 @@ public class SyncServiceImpl implements SyncService {
 		dto.setFieldUpdatedAt(s.getFieldUpdatedAt());
 		return dto;
 	}
+
 	/**
 	 * 拉取服务端的增量变更，客户端通过游标定位起始位置。
-	 * TODO: 待实现（API-SYNC-02，对应需求 SYNC-004,005,006）
 	 *
 	 * @param userId   用户 ID
 	 * @param cursor   客户端上次拉取的游标位置
@@ -728,13 +731,78 @@ public class SyncServiceImpl implements SyncService {
 	 */
 	@Override
 	public SyncPullResult pull(Long userId, String cursor, Integer limit, String deviceId) {
-		// TODO: API-SYNC-02（需求：SYNC-004,005,006）
-		throw new UnsupportedOperationException("TODO: API-SYNC-02");
+		SysUserDevice userDevice = deviceMapper.selectOne(new LambdaQueryWrapper<SysUserDevice>()
+				.eq(SysUserDevice::getUserId, userId)
+				.eq(SysUserDevice::getDeviceId, deviceId));
+		if (userDevice == null) {
+			throw new BizException(ErrorCode.FORBIDDEN);
+		}
+		if (limit == null) {
+			limit = bizProps.getSync().getPullDefaultLimit();
+		} else if (limit < 1) {
+			limit = 1;
+		} else if (limit > bizProps.getSync().getPullMaxLimit()) {
+			limit = 500;
+		}
+		long cursorId = 0;
+		if (cursor != null && !cursor.isBlank()) {
+			try {
+				cursorId = Long.parseLong(cursor.trim());
+			} catch (NumberFormatException e) {
+				cursorId = -1;   // 标记为无效
+			}
+		}
+		long now = System.currentTimeMillis();
+		if (cursorId < 0) {
+			// 游标不是数字或者是负数：返回 fullSyncRequired = true
+			return toPullResulet(new ArrayList<>(), false, "0", true, now);
+		}
+		// 校验游标是否还是有效
+		if (cursorId > 0) {
+			// 根据用户id和日志id来查一条以判断是否有效
+			BeatSyncChange change = syncChangeMapper.selectOne(new LambdaQueryWrapper<BeatSyncChange>()
+					.eq(BeatSyncChange::getUserId, userId)
+					.eq(BeatSyncChange::getId, cursorId));
+			// 没查到，无效，让前端重新拉取从0开始
+			if (change == null) {
+				return toPullResulet(new ArrayList<>(), false, "0", true, now);
+			}
+			long days = TimeUnit.MILLISECONDS.toDays(now - change.getCreatedAt());
+			long tombstoneRetentionDays = bizProps.getSync().getTombstoneRetentionDays();
+			// 创建时间早于墓碑保留天数，无效，让前端重新拉取从0开始
+			if (days < tombstoneRetentionDays) {
+				return toPullResulet(new ArrayList<>(), false, "0", true, now);
+			}
+		}
+		List<BeatSyncChange> rows = syncChangeMapper.selectList(new LambdaQueryWrapper<BeatSyncChange>()
+				.eq(BeatSyncChange::getUserId, userId)
+				.gt(BeatSyncChange::getId, cursorId)
+				.orderByAsc(BeatSyncChange::getId)
+				.last("LIMIT " + (limit + 1)));
+		List<SyncServerChange> Changes = new ArrayList<>();
+		if (rows.size() > limit) {
+			for (int i = 0; i < limit; i++) {
+				BeatSyncChange change = rows.get(i);
+				SyncServerChange serverChange = toServerChange(change);
+				Changes.add(serverChange);
+			}
+			String nextCursorId = String.valueOf(rows.get(limit).getId());
+			updateDevice(userId, deviceId, now);
+			return toPullResulet(Changes, true, nextCursorId, false, now);
+		}else {
+			for (BeatSyncChange row : rows) {
+				SyncServerChange serverChange = toServerChange(row);
+				Changes.add(serverChange);
+			}
+			updateDevice(userId, deviceId, now);
+			return toPullResulet(Changes, false, "0", false, now);
+		}
+
 	}
+
 
 	/**
 	 * 查询同步状态信息，包括待拉取的变更数量和设备最后同步时间。
-	 * TODO: 待实现（API-SYNC-03，对应需求 SYNC-013）
 	 *
 	 * @param userId   用户 ID
 	 * @param deviceId 设备 ID
@@ -915,6 +983,7 @@ public class SyncServiceImpl implements SyncService {
 		r.setExpiresAt(now + Duration.ofDays(bizProps.getIdempotency().getRetentionDays()).toMillis());
 		receiptMapper.insert(r);
 	}
+
 	/**
 	 * 生成工作记录的完整快照，包含记录本身和所有关联分段。
 	 * 快照用于在冲突场景下向客户端返回服务端的当前状态。
@@ -931,6 +1000,7 @@ public class SyncServiceImpl implements SyncService {
 				.orderByAsc(BeatWorkSegment::getSegmentNo));
 		return objectMapper.valueToTree(WorkRecordConverter.toDto(record, segs));
 	}
+
 	/**
 	 * 将对象序列化为 JSON 字符串。
 	 *
@@ -944,5 +1014,46 @@ public class SyncServiceImpl implements SyncService {
 		} catch (JsonProcessingException e) {
 			throw new IllegalStateException("对象序列化为 JSON 失败", e);
 		}
+	}
+
+	private SyncPullResult toPullResulet(List<SyncServerChange> changes, Boolean hasMore, String nextCursor,
+	                                     Boolean fullSyncRequired, Long now) {
+		SyncPullResult r = new SyncPullResult();
+		r.setChanges(changes);
+		r.setHasMore(hasMore);
+		r.setNextCursor(nextCursor);
+		r.setFullSyncRequired(fullSyncRequired);
+		r.setServerTime(now);
+		return r;
+	}
+
+	private SyncServerChange toServerChange(BeatSyncChange change) {
+		SyncServerChange serverChange = new SyncServerChange();
+		serverChange.setSeq(String.valueOf(change.getId()));
+		serverChange.setEntityId(change.getEntityId());
+		serverChange.setEntityType(change.getEntityType());
+		serverChange.setOp(change.getOp());
+		serverChange.setVersion(change.getVersion());
+		serverChange.setOriginDeviceId(change.getOriginDeviceId());
+		serverChange.setUpdatedAt(change.getCreatedAt());
+		// DELETE 的 payload 为空，保持 null
+		if (change.getOp() == SyncOp.UPSERT && change.getPayload() != null) {
+			try {
+				serverChange.setPayload(objectMapper.readTree(change.getPayload()));
+			} catch (JsonProcessingException e) {
+				throw new IllegalStateException(
+						"变更日志快照解析失败 seq=" + change.getId()
+								+ " entityType=" + change.getEntityType()
+								+ " entityId=" + change.getEntityId(), e);
+			}
+		}
+		return serverChange;
+	}
+	private void updateDevice(Long userId, String deviceId, long now) {
+		deviceMapper.update(null, new LambdaUpdateWrapper<SysUserDevice>()
+				.eq(SysUserDevice::getUserId, userId)
+				.eq(SysUserDevice::getDeviceId, deviceId)
+				.set(SysUserDevice::getLastSyncAt, now)
+				.set(SysUserDevice::getUpdatedAt, now));
 	}
 }
